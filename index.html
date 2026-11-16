@@ -1,0 +1,722 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#0d1b2a">
+<meta name="description" content="CPU와 1:1로 겨루는 배드민턴 게임. 설치하면 오프라인에서도 플레이할 수 있습니다.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png" type="image/png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="셔틀 스매시">
+<title>셔틀 스매시</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0d1b2a; overflow: hidden; font-family: "Segoe UI", "Malgun Gothic", sans-serif; color: #fff; user-select: none; -webkit-user-select: none; touch-action: none; }
+  #wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px); }
+  body { -webkit-touch-callout: none; -webkit-tap-highlight-color: transparent; }
+  #rotate { position: fixed; inset: 0; z-index: 50; display: none; flex-direction: column; align-items: center; justify-content: center; gap: 12px; background: #0d1b2a; text-align: center; font-size: 18px; padding: 24px; }
+  #rotate .ph { font-size: 64px; animation: tilt 1.6s ease-in-out infinite; }
+  @keyframes tilt { 0%,30% { transform: rotate(0); } 60%,100% { transform: rotate(-90deg); } }
+  @media (pointer: coarse) and (orientation: portrait) { #rotate { display: flex; } }
+  .touchOnly { display: none; } @media (pointer: coarse) { .touchOnly { display: block; } .keyOnly { display: none; } }
+  #stage { position: relative; }
+  canvas { display: block; width: 100%; height: 100%; border-radius: 12px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  .overlay { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(8,18,32,.78); border-radius: 12px; text-align: center; padding: 16px; }
+  .overlay.hidden { display: none; }
+  h1 { font-size: clamp(32px, 6vw, 64px); letter-spacing: 2px; background: linear-gradient(90deg,#ffd166,#ef476f); -webkit-background-clip: text; background-clip: text; color: transparent; font-weight: 900; }
+  .sub { opacity: .85; font-size: clamp(13px, 1.8vw, 17px); line-height: 1.7; }
+  .btns { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  button.menu { font: inherit; font-size: clamp(15px, 2vw, 19px); font-weight: 700; padding: 10px 22px; border: 0; border-radius: 999px; cursor: pointer; color: #0d1b2a; background: #ffd166; transition: transform .1s; }
+  button.menu:hover { transform: scale(1.06); }
+  button.menu.b2 { background: #06d6a0; } button.menu.b3 { background: #ef476f; color: #fff; }
+  kbd { background: #fff2; border: 1px solid #fff4; border-radius: 4px; padding: 0 6px; font-family: inherit; }
+  #touch { position: absolute; left: 0; right: 0; bottom: 8px; display: none; justify-content: space-between; padding: 0 10px; pointer-events: none; }
+  #touch .grp { display: flex; gap: 10px; pointer-events: auto; }
+  #touch button { touch-action: none; width: 64px; height: 64px; border-radius: 50%; border: 2px solid #fff6; background: #fff2; color: #fff; font-size: 20px; font-weight: 800; }
+  #touch button.on { background: #fff5; }
+  @media (pointer: coarse) { #touch { display: flex; } }
+</style>
+</head>
+<body>
+<div id="rotate"><div class="ph">📱</div><div>화면을 <b>가로로</b> 돌려 주세요</div></div>
+<div id="wrap">
+  <div id="stage">
+    <canvas id="c" width="960" height="540"></canvas>
+    <div id="menu" class="overlay">
+      <h1>🏸 셔틀 스매시</h1>
+      <div class="sub">
+        <span class="keyOnly">이동 <kbd>A</kbd><kbd>D</kbd> / <kbd>←</kbd><kbd>→</kbd> &nbsp; 점프 <kbd>W</kbd> / <kbd>↑</kbd> &nbsp; 스윙 <kbd>Space</kbd> / <kbd>J</kbd><br></span>
+        <span class="touchOnly">왼쪽 <b>◀ ▶</b> 이동 &nbsp; 오른쪽 <b>⤒</b> 점프 &nbsp; <b>🏸</b> 스윙·서브</span>
+        스윙할 때 <b>뒤로</b> 누르면 높은 클리어, <b>앞으로</b> 누르면 드롭샷<br>
+        <b>점프 중</b> 머리 위 셔틀을 치면 <b style="color:#ffd166">스매시!</b> · 11점 선승 (듀스 시 2점 차)
+      </div>
+      <div class="btns">
+        <button class="menu b2" data-diff="0">쉬움</button>
+        <button class="menu" data-diff="1">보통</button>
+        <button class="menu b3" data-diff="2">어려움</button>
+      </div>
+    </div>
+    <div id="over" class="overlay hidden">
+      <h1 id="overTitle">승리!</h1>
+      <div class="sub" id="overSub"></div>
+      <div class="btns">
+        <button class="menu" id="againBtn">다시 하기</button>
+        <button class="menu b2" id="menuBtn">난이도 선택</button>
+      </div>
+    </div>
+    <div id="touch">
+      <div class="grp"><button data-k="left">◀</button><button data-k="right">▶</button></div>
+      <div class="grp"><button data-k="jump">⤒</button><button data-k="swing">🏸</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+(() => {
+'use strict';
+const W = 960, H = 540;
+const FLOOR = 470, NETX = 480, NETTOP = 355, COURT_L = 40, COURT_R = 920;
+const G = 0.28, K = 0.0016;              // 셔틀 중력 / 공기저항(속도 제곱 비례)
+const P_GRAV = 0.55, JUMP_V = -10, SWING_LEN = 18;
+const WIN_SCORE = 11, MAX_SCORE = 15;
+const touchMQ = window.matchMedia ? matchMedia('(pointer: coarse)') : { matches: false };
+let usedTouch = false;
+window.addEventListener('touchstart', () => { usedTouch = true; }, { passive: true });
+
+const cv = document.getElementById('c');
+const ctx = cv.getContext('2d');
+const stage = document.getElementById('stage');
+
+// ---------- 화면 맞춤 ----------
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, r) {
+    this.moveTo(x + r, y); this.arcTo(x + w, y, x + w, y + h, r); this.arcTo(x + w, y + h, x, y + h, r);
+    this.arcTo(x, y + h, x, y, r); this.arcTo(x, y, x + w, y, r); this.closePath();
+  };
+}
+const wrapEl = document.getElementById('wrap');
+function fit() {
+  const cs = getComputedStyle(wrapEl);
+  const aw = wrapEl.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+  const ah = wrapEl.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+  const s = Math.min(aw / W, ah / H) * 0.97;
+  stage.style.width = (W * s) + 'px';
+  stage.style.height = (H * s) + 'px';
+}
+window.addEventListener('resize', fit); window.addEventListener('orientationchange', () => setTimeout(fit, 200)); fit();
+
+// ---------- 사운드 ----------
+let actx = null;
+function beep(freq, dur, type = 'square', vol = 0.15, slide = 0) {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime, o = actx.createOscillator(), g = actx.createGain();
+    o.type = type; o.frequency.setValueAtTime(freq, t);
+    if (slide) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + slide), t + dur);
+    g.gain.setValueAtTime(vol, t); g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    o.connect(g); g.connect(actx.destination); o.start(t); o.stop(t + dur);
+  } catch (e) {}
+}
+// iOS는 사용자의 터치 안에서 오디오를 켜야 소리가 남
+function unlockAudio() {
+  try {
+    if (!actx) actx = new (window.AudioContext || window.webkitAudioContext)();
+    if (actx.state === 'suspended') actx.resume();
+    const b = actx.createBuffer(1, 1, 22050), src = actx.createBufferSource();
+    src.buffer = b; src.connect(actx.destination); src.start(0);
+  } catch (e) {}
+}
+['touchstart', 'touchend', 'mousedown', 'keydown'].forEach(ev => window.addEventListener(ev, unlockAudio, { passive: true }));
+const sfx = {
+  hit: () => beep(900, 0.07, 'triangle', 0.25, -400),
+  smash: () => { beep(1400, 0.12, 'sawtooth', 0.18, -1100); beep(200, 0.15, 'square', 0.12, -120); },
+  swing: () => beep(300, 0.05, 'sine', 0.05, 200),
+  point: () => { beep(660, 0.1, 'triangle', 0.2); setTimeout(() => beep(880, 0.15, 'triangle', 0.2), 100); },
+  lose: () => { beep(330, 0.15, 'triangle', 0.2); setTimeout(() => beep(220, 0.25, 'triangle', 0.2), 130); },
+  net: () => beep(120, 0.15, 'square', 0.15),
+};
+
+// ---------- 입력 ----------
+const keys = { left: false, right: false, jump: false, swing: false };
+let swingPressed = false, jumpPressed = false;
+const keyMap = { KeyA: 'left', ArrowLeft: 'left', KeyD: 'right', ArrowRight: 'right', KeyW: 'jump', ArrowUp: 'jump', Space: 'swing', KeyJ: 'swing' };
+function press(k, down) {
+  if (down && !keys[k]) { if (k === 'swing') swingPressed = true; if (k === 'jump') jumpPressed = true; }
+  keys[k] = down;
+}
+window.addEventListener('keydown', e => { const k = keyMap[e.code]; if (k) { e.preventDefault(); press(k, true); } });
+window.addEventListener('keyup', e => { const k = keyMap[e.code]; if (k) { e.preventDefault(); press(k, false); } });
+document.querySelectorAll('#touch button').forEach(b => {
+  const k = b.dataset.k;
+  const on = e => { e.preventDefault(); press(k, true); b.classList.add('on'); };
+  const off = e => { e.preventDefault(); press(k, false); b.classList.remove('on'); };
+  b.addEventListener('touchstart', on); b.addEventListener('touchend', off); b.addEventListener('touchcancel', off);
+  b.addEventListener('mousedown', on); b.addEventListener('mouseup', off); b.addEventListener('mouseleave', off);
+});
+
+// ---------- 난이도 ----------
+const DIFFS = [
+  { name: '쉬움',   speed: 4.2, err: 70, miss: 0.18, smash: 0.10, smart: 0.2, judge: 0.3 },
+  { name: '보통',   speed: 5.4, err: 40, miss: 0.08, smash: 0.40, smart: 0.55, judge: 0.7 },
+  { name: '어려움', speed: 6.8, err: 14, miss: 0.02, smash: 0.80, smart: 0.9, judge: 0.95 },
+];
+let diff = DIFFS[1];
+
+// ---------- 셔틀 물리 ----------
+function stepShuttle(s) {
+  const sp = Math.hypot(s.vx, s.vy);
+  s.vx += -K * s.vx * sp;
+  s.vy += G - K * s.vy * sp;
+  s.x += s.vx; s.y += s.vy;
+}
+// 궤적을 시뮬레이션해 착지 지점 계산
+function landing(x, y, vx, vy) {
+  const s = { x, y, vx, vy };
+  for (let i = 0; i < 900; i++) {
+    const px = s.x; stepShuttle(s);
+    if ((px - NETX) * (s.x - NETX) <= 0 && s.y > NETTOP - 6) return { net: true, x: s.x };
+    if (s.y >= FLOOR) return { x: s.x, t: i };
+  }
+  return { x: s.x };
+}
+// 목표 착지 지점(tx)에 떨어지도록 속도를 이분 탐색
+function solveShot(x, y, tx, angDeg, dir) {
+  for (let a = angDeg; a > -82; a -= 5) {
+    const r = a * Math.PI / 180;
+    let lo = 1, hi = 45;
+    for (let k = 0; k < 22; k++) {
+      const m = (lo + hi) / 2;
+      const L = landing(x, y, dir * m * Math.cos(r), m * Math.sin(r));
+      const reach = L.net ? -1e9 : dir * (L.x - x);
+      if (reach < dir * (tx - x)) lo = m; else hi = m;
+    }
+    const vx = dir * hi * Math.cos(r), vy = hi * Math.sin(r);
+    const L = landing(x, y, vx, vy);
+    if (!L.net && Math.abs(L.x - tx) < 30) return { vx, vy };
+  }
+  return { vx: dir * 9, vy: -12 };
+}
+
+// ---------- 게임 상태 ----------
+function makePlayer(side) {
+  const L = side === 'L';
+  return {
+    side, dir: L ? 1 : -1, x: L ? 240 : 720, y: FLOOR, vy: 0, onGround: true,
+    swing: 0, walk: 0, minX: L ? 30 : NETX + 25, maxX: L ? NETX - 25 : W - 30,
+    color: L ? '#118ab2' : '#ef476f', color2: L ? '#073b4c' : '#9d0208',
+    // AI 전용
+    err: 0, willMiss: false, trySmash: false,
+  };
+}
+const pL = makePlayer('L'), pR = makePlayer('R');
+const shuttle = { x: 0, y: 0, vx: 0, vy: 0, held: true, trail: [] };
+let score = { L: 0, R: 0 };
+let server = 'L', lastHitter = null, state = 'menu', timer = 0;
+let message = '', messageColor = '#fff', banner = null; // banner: {text, t, color}
+let particles = [], shake = 0, flash = 0, rally = 0, bestRally = 0;
+let landMark = null;
+
+function resetRally() {
+  pL.x = server === 'L' ? 300 : 240; pR.x = server === 'R' ? 660 : 720;
+  for (const p of [pL, pR]) { p.y = FLOOR; p.vy = 0; p.onGround = true; p.swing = 0; }
+  shuttle.held = true; shuttle.vx = shuttle.vy = 0; shuttle.trail = [];
+  lastHitter = null; rally = 0; state = 'serve'; timer = 0; landMark = null;
+  swingPressed = false;
+}
+function startGame(d) {
+  diff = DIFFS[d];
+  score = { L: 0, R: 0 }; server = 'L'; bestRally = 0;
+  document.getElementById('menu').classList.add('hidden');
+  document.getElementById('over').classList.add('hidden');
+  resetRally();
+}
+document.querySelectorAll('[data-diff]').forEach(b => b.addEventListener('click', () => startGame(+b.dataset.diff)));
+document.getElementById('againBtn').addEventListener('click', () => startGame(DIFFS.indexOf(diff)));
+document.getElementById('menuBtn').addEventListener('click', () => {
+  document.getElementById('over').classList.add('hidden');
+  document.getElementById('menu').classList.remove('hidden'); state = 'menu';
+});
+
+// ---------- 타격 ----------
+function hitZoneDist(p, sx, sy) {
+  // 라켓이 닿는 범위: 몸 앞쪽 아래(ax,ay) ~ 머리 위(bx,by) 선분
+  const ax = p.x + p.dir * 40, ay = p.y - 30, bx = p.x + p.dir * 20, by = p.y - 155;
+  const dx = bx - ax, dy = by - ay;
+  let t = ((sx - ax) * dx + (sy - ay) * dy) / (dx * dx + dy * dy);
+  t = Math.max(0, Math.min(1, t));
+  return Math.hypot(sx - (ax + dx * t), sy - (ay + dy * t));
+}
+function canReach(p, sx, sy) {
+  if (lastHitter === p.side) return false;
+  if (p.dir * (sx - NETX) > 12) return false; // 상대 코트의 셔틀은 칠 수 없음
+  return hitZoneDist(p, sx, sy) < 46;
+}
+function doHit(p, type) {
+  const d = p.dir, mirror = x => d === 1 ? x : W - x;
+  const rnd = (a) => (Math.random() - 0.5) * a;
+  let tx, ang;
+  switch (type) {
+    case 'clear': tx = mirror(850 + rnd(50)); ang = -48; break;
+    case 'drop':  tx = mirror(565 + rnd(30)); ang = -40; break;
+    case 'smash': tx = mirror(690 + rnd(120)); ang = 15; break;
+    case 'serve': tx = mirror(800 + rnd(60)); ang = -60; break;
+    case 'lowserve': tx = mirror(600 + rnd(30)); ang = -35; break;
+    default:      tx = mirror(710 + rnd(90)); ang = -20; break; // drive
+  }
+  const v = solveShot(shuttle.x, shuttle.y, tx, ang, d);
+  shuttle.vx = v.vx; shuttle.vy = v.vy; shuttle.held = false;
+  lastHitter = p.side; rally++;
+  const big = type === 'smash';
+  big ? sfx.smash() : sfx.hit();
+  for (let i = 0; i < (big ? 22 : 10); i++) {
+    const a = Math.random() * Math.PI * 2, s = Math.random() * (big ? 6 : 3) + 1;
+    particles.push({ x: shuttle.x, y: shuttle.y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 25 + Math.random() * 15, color: big ? '#ffd166' : '#ffffff' });
+  }
+  if (big) { shake = 10; flash = 6; banner = { text: 'SMASH!', t: 50, color: '#ffd166' }; }
+  else if (type === 'drop') banner = { text: 'DROP', t: 30, color: '#06d6a0' };
+  // 다음 공을 받는 AI의 실수/오차 결정
+  if (p.side === 'L') {
+    pR.err = (Math.random() - 0.5) * diff.err * (big ? 1.6 : 1);
+    pR.willMiss = Math.random() < diff.miss * (big ? 2.2 : 1);
+    pR.trySmash = Math.random() < diff.smash;
+  }
+}
+
+// ---------- 플레이어 갱신 ----------
+function physicsPlayer(p) {
+  if (!p.onGround) {
+    p.vy += P_GRAV; p.y += p.vy;
+    if (p.y >= FLOOR) { p.y = FLOOR; p.vy = 0; p.onGround = true; }
+  }
+  if (p.swing > 0) { p.swing++; if (p.swing > SWING_LEN) p.swing = 0; }
+  p.x = Math.max(p.minX, Math.min(p.maxX, p.x));
+}
+function startSwing(p) { if (p.swing === 0) { p.swing = 1; sfx.swing(); } }
+function swingActive(p) { return p.swing >= 2 && p.swing <= 11; }
+
+function updateHuman() {
+  const p = pL, spd = 6.2;
+  let mv = 0;
+  if (keys.left) mv -= 1;
+  if (keys.right) mv += 1;
+  if (state === 'serve' && server === 'L') mv = 0; // 서브 중엔 이동 불가
+  p.x += mv * spd * (p.onGround ? 1 : 0.85);
+  p.walk = mv ? p.walk + 0.25 : 0;
+  if (jumpPressed && p.onGround && !(state === 'serve' && server === 'L')) { p.vy = JUMP_V; p.onGround = false; }
+  jumpPressed = false;
+  if (swingPressed) {
+    if (state === 'serve' && server === 'L') { startSwing(p); serveBy(p, 'serve'); }
+    else if (state === 'play') startSwing(p);
+  }
+  swingPressed = false;
+  if (state === 'play' && swingActive(p) && canReach(p, shuttle.x, shuttle.y)) {
+    let type;
+    if (!p.onGround && shuttle.y < p.y - 110) type = 'smash';
+    else if (keys.left) type = 'clear';
+    else if (keys.right) type = 'drop';
+    else type = shuttle.y > FLOOR - 55 ? 'clear' : 'drive';
+    doHit(p, type);
+  }
+}
+
+function serveBy(p, type) {
+  shuttle.x = p.x + p.dir * 30; shuttle.y = p.y - 70;
+  state = 'play';
+  doHit(p, type);
+  rally = 0;
+}
+
+function predict() {
+  // AI 쪽으로 오는 셔틀의 타점/스매시 지점 예측
+  const s = { x: shuttle.x, y: shuttle.y, vx: shuttle.vx, vy: shuttle.vy };
+  let hit = null, smashPt = null, land = null;
+  for (let t = 1; t < 400; t++) {
+    const px = s.x; stepShuttle(s);
+    if ((px - NETX) * (s.x - NETX) <= 0 && s.y > NETTOP) return { net: true };
+    if (s.y >= FLOOR) { land = { x: s.x, t }; break; }
+    if (s.x > NETX && s.vy > 0) {
+      if (!smashPt && s.y > FLOOR - 215 && s.y < FLOOR - 165) smashPt = { x: s.x, t };
+      if (!hit && s.y >= FLOOR - 100) hit = { x: s.x, t };
+    }
+  }
+  return { hit: hit || land, smashPt, land };
+}
+
+function updateAI() {
+  const p = pR;
+  let target = 700;
+  if (state === 'serve' && server === 'R') {
+    timer++;
+    if (timer > 55) { startSwing(p); serveBy(p, Math.random() < 0.4 ? 'lowserve' : 'serve'); }
+    p.walk = 0; return;
+  }
+  if (state === 'serve') target = 720;
+  if (state === 'play' && lastHitter !== 'R' && !shuttle.held) {
+    const pr = predict();
+    if (!pr.net && pr.land) {
+      const goingOut = pr.land.x > COURT_R + 10;
+      if (goingOut && Math.random() < diff.judge) {
+        target = Math.min(p.maxX, pr.land.x + 60); // 아웃될 공은 피함
+        p.letGo = true;
+      } else if (pr.hit && pr.hit.x > NETX - 10) {
+        p.letGo = false;
+        target = pr.hit.x + 30 + p.err;
+        // 스매시 시도
+        const sp = pr.smashPt;
+        if (p.trySmash && sp && sp.x > NETX + 40 && sp.x < COURT_R && p.onGround) {
+          const need = Math.abs(sp.x + 24 - p.x);
+          if (need < diff.speed * sp.t + 6) {
+            target = sp.x + 24;
+            if (sp.t <= 19 && sp.t >= 15) { p.vy = JUMP_V; p.onGround = false; }
+          }
+        }
+      }
+    }
+  } else if (state === 'play' && lastHitter === 'R') {
+    target = 700 + (pL.x < 160 ? -60 : 0);
+  }
+  const dx = target - p.x;
+  const mv = Math.abs(dx) < 4 ? 0 : Math.sign(dx);
+  p.x += mv * Math.min(diff.speed, Math.abs(dx));
+  p.walk = mv ? p.walk + 0.25 : 0;
+
+  if (state === 'play' && !p.willMiss && !p.letGo) {
+    // 몇 프레임 앞을 보고 미리 스윙
+    const s = { x: shuttle.x, y: shuttle.y, vx: shuttle.vx, vy: shuttle.vy };
+    stepShuttle(s); stepShuttle(s);
+    if (p.swing === 0 && (canReach(p, s.x, s.y) || canReach(p, shuttle.x, shuttle.y))) startSwing(p);
+    if (swingActive(p) && canReach(p, shuttle.x, shuttle.y)) {
+      let type;
+      if (!p.onGround && shuttle.y < p.y - 110) type = 'smash';
+      else if (Math.random() < diff.smart) {
+        // 상대 위치를 보고 빈 곳 공략
+        if (pL.x < 170) type = Math.random() < 0.7 ? 'drop' : 'drive';
+        else if (pL.x > 330) type = 'clear';
+        else type = ['clear', 'drive', 'drop'][Math.floor(Math.random() * 3)];
+      } else type = ['clear', 'drive', 'drop', 'clear'][Math.floor(Math.random() * 4)];
+      if (shuttle.y > FLOOR - 50 && type === 'drive') type = 'clear';
+      doHit(p, type);
+    }
+  }
+}
+
+// ---------- 셔틀 갱신 & 판정 ----------
+function updateShuttle() {
+  if (shuttle.held) {
+    const p = server === 'L' ? pL : pR;
+    shuttle.x = p.x + p.dir * 30; shuttle.y = p.y - 70;
+    return;
+  }
+  const px = shuttle.x;
+  stepShuttle(shuttle);
+  shuttle.trail.push({ x: shuttle.x, y: shuttle.y });
+  if (shuttle.trail.length > 14) shuttle.trail.shift();
+  // 네트 충돌
+  if ((px - NETX) * (shuttle.x - NETX) <= 0 && shuttle.y > NETTOP && shuttle.y < FLOOR) {
+    shuttle.x = NETX - Math.sign(shuttle.vx) * 6;
+    shuttle.vx = -shuttle.vx * 0.12; shuttle.vy = Math.max(shuttle.vy * 0.2, 0.5);
+    sfx.net(); banner = { text: 'NET', t: 40, color: '#ef476f' };
+  }
+  if (shuttle.y >= FLOOR) {
+    shuttle.y = FLOOR;
+    const x = shuttle.x;
+    let winner;
+    const out = x < COURT_L || x > COURT_R;
+    if (x < NETX) winner = out ? (lastHitter === 'R' ? 'L' : 'R') : 'R';
+    else winner = out ? (lastHitter === 'L' ? 'R' : 'L') : 'L';
+    landMark = { x, out, t: 120 };
+    pointTo(winner, out ? 'OUT!' : 'IN');
+  }
+}
+
+function pointTo(winner, why) {
+  score[winner]++;
+  bestRally = Math.max(bestRally, rally);
+  server = winner;
+  state = 'point'; timer = 0;
+  message = (winner === 'L' ? '득점!' : '실점') + '  ' + why;
+  messageColor = winner === 'L' ? '#06d6a0' : '#ef476f';
+  winner === 'L' ? sfx.point() : sfx.lose();
+}
+
+function checkGameOver() {
+  const a = score.L, b = score.R;
+  const done = (Math.max(a, b) >= WIN_SCORE && Math.abs(a - b) >= 2) || Math.max(a, b) >= MAX_SCORE;
+  if (!done) return false;
+  state = 'over';
+  const win = a > b;
+  document.getElementById('overTitle').textContent = win ? '🏆 승리!' : '😢 패배';
+  document.getElementById('overSub').innerHTML = `최종 스코어 <b>${a} : ${b}</b> (${diff.name})<br>최장 랠리 ${bestRally}회`;
+  document.getElementById('over').classList.remove('hidden');
+  return true;
+}
+
+// ---------- 메인 업데이트 ----------
+function update() {
+  if (state === 'menu' || state === 'over') return;
+  if (state === 'point') {
+    timer++;
+    if (shuttle.y < FLOOR) updateShuttle(); // (이미 착지)
+    physicsPlayer(pL); physicsPlayer(pR);
+    if (timer > 90 && !checkGameOver()) resetRally();
+    swingPressed = jumpPressed = false;
+  } else {
+    updateHuman();
+    updateAI();
+    physicsPlayer(pL); physicsPlayer(pR);
+    if (state === 'play') updateShuttle(); else updateShuttle();
+  }
+  particles = particles.filter(q => (q.x += q.vx, q.y += q.vy, q.vy += 0.15, --q.life > 0));
+  if (banner && --banner.t <= 0) banner = null;
+  if (landMark && --landMark.t <= 0) landMark = null;
+  if (shake > 0) shake--;
+  if (flash > 0) flash--;
+}
+
+// ---------- 그리기 ----------
+function drawBackground() {
+  const g = ctx.createLinearGradient(0, 0, 0, FLOOR);
+  g.addColorStop(0, '#1b263b'); g.addColorStop(1, '#415a77');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, FLOOR);
+  // 체육관 조명
+  for (let i = 0; i < 5; i++) {
+    const x = 96 + i * 192;
+    const lg = ctx.createRadialGradient(x, 0, 0, x, 0, 160);
+    lg.addColorStop(0, 'rgba(255,240,200,.35)'); lg.addColorStop(1, 'rgba(255,240,200,0)');
+    ctx.fillStyle = lg; ctx.fillRect(x - 160, 0, 320, 160);
+    ctx.fillStyle = '#fff8e0'; ctx.fillRect(x - 22, 6, 44, 6);
+  }
+  // 관중석
+  ctx.fillStyle = '#26364d';
+  for (let r = 0; r < 3; r++) ctx.fillRect(0, 250 + r * 38, W, 22);
+  for (let r = 0; r < 3; r++) for (let i = 0; i < 40; i++) {
+    const x = 12 + i * 24 + (r % 2) * 12, y = 244 + r * 38;
+    ctx.fillStyle = ['#e07a5f', '#81b29a', '#f2cc8f', '#3d405b', '#a8dadc'][(i * 7 + r * 3) % 5];
+    ctx.globalAlpha = 0.55;
+    ctx.beginPath(); ctx.arc(x, y, 6, 0, Math.PI * 2); ctx.fill();
+    ctx.fillRect(x - 6, y + 5, 12, 10);
+    ctx.globalAlpha = 1;
+  }
+  // 바닥
+  ctx.fillStyle = '#c98b4f'; ctx.fillRect(0, FLOOR, W, H - FLOOR);
+  ctx.fillStyle = '#2a9d8f'; ctx.fillRect(COURT_L, FLOOR, COURT_R - COURT_L, H - FLOOR);
+  ctx.fillStyle = 'rgba(255,255,255,.9)';
+  ctx.fillRect(COURT_L - 2, FLOOR, 4, H - FLOOR); ctx.fillRect(COURT_R - 2, FLOOR, 4, H - FLOOR);
+  ctx.fillRect(COURT_L, FLOOR, COURT_R - COURT_L, 3);
+  ctx.fillRect(NETX - 150, FLOOR, 3, H - FLOOR); ctx.fillRect(NETX + 147, FLOOR, 3, H - FLOOR);
+  ctx.fillStyle = 'rgba(0,0,0,.12)';
+  for (let x = 0; x < W; x += 48) ctx.fillRect(x, FLOOR + 3, 1, H - FLOOR);
+}
+
+function drawNet() {
+  // 기둥
+  ctx.fillStyle = '#ddd'; ctx.fillRect(NETX - 3, NETTOP - 6, 6, FLOOR - NETTOP + 6);
+  // 그물
+  const top = NETTOP, bot = NETTOP + 70;
+  ctx.fillStyle = 'rgba(20,20,20,.35)'; ctx.fillRect(NETX - 5, top, 10, bot - top);
+  ctx.strokeStyle = 'rgba(255,255,255,.45)'; ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let y = top; y <= bot; y += 7) { ctx.moveTo(NETX - 5, y); ctx.lineTo(NETX + 5, y); }
+  ctx.moveTo(NETX - 5, top); ctx.lineTo(NETX - 5, bot); ctx.moveTo(NETX + 5, top); ctx.lineTo(NETX + 5, bot);
+  ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.fillRect(NETX - 6, top - 3, 12, 6);
+}
+
+function drawPlayer(p) {
+  // 그림자
+  const hgt = FLOOR - p.y;
+  ctx.fillStyle = `rgba(0,0,0,${0.3 - hgt / 600})`;
+  ctx.beginPath(); ctx.ellipse(p.x, FLOOR + 4, 26 - hgt / 10, 6, 0, 0, Math.PI * 2); ctx.fill();
+
+  ctx.save();
+  ctx.translate(p.x, p.y); ctx.scale(p.dir, 1);
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  // 다리
+  const w = Math.sin(p.walk) * 12, air = p.onGround ? 0 : 1;
+  ctx.strokeStyle = '#1d1d1d'; ctx.lineWidth = 8;
+  ctx.beginPath();
+  ctx.moveTo(-4, -44); ctx.lineTo(-6 + w - air * 6, -22 + air * 4); ctx.lineTo(-8 + w * 1.2 - air * 4, -2 - air * 4);
+  ctx.moveTo(4, -44); ctx.lineTo(6 - w + air * 8, -22 - air * 6); ctx.lineTo(8 - w * 1.2 + air * 2, -2 - air * 2);
+  ctx.stroke();
+  // 신발
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(-14 + w * 1.2 - air * 4, -6 - air * 4, 14, 6);
+  ctx.fillRect(4 - w * 1.2 + air * 2, -6 - air * 2, 14, 6);
+  // 반바지 & 상체
+  ctx.fillStyle = p.color2; ctx.fillRect(-12, -52, 24, 14);
+  ctx.fillStyle = p.color;
+  ctx.beginPath(); ctx.roundRect(-13, -92, 26, 44, 8); ctx.fill();
+  // 등번호 줄
+  ctx.fillStyle = 'rgba(255,255,255,.7)'; ctx.fillRect(-13, -74, 26, 4);
+  // 뒷팔
+  ctx.strokeStyle = '#f1c27d'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(-4, -84); ctx.lineTo(-18, -70); ctx.lineTo(-14, -56); ctx.stroke();
+  // 머리
+  ctx.fillStyle = '#f1c27d'; ctx.beginPath(); ctx.arc(0, -106, 13, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#2b2118'; ctx.beginPath(); ctx.arc(-2, -110, 13, Math.PI * 0.9, Math.PI * 2.05); ctx.fill();
+  ctx.fillStyle = p.color2; ctx.fillRect(-13, -113, 26, 4);
+  ctx.fillStyle = '#111'; ctx.beginPath(); ctx.arc(6, -105, 2, 0, Math.PI * 2); ctx.fill();
+
+  // 라켓 팔
+  let ang;
+  if (p.swing > 0) {
+    const t = p.swing / SWING_LEN;
+    const e = t < 0.55 ? (t / 0.55) : 1 - (t - 0.55) / 0.45 * 0.6;
+    ang = -2.5 + e * 3.1;
+  } else ang = -1.9 + Math.sin(performance.now() / 300) * 0.05;
+  const sx = 4, sy = -84;
+  const hx = sx + Math.cos(ang) * 24, hy = sy + Math.sin(ang) * 24;
+  ctx.strokeStyle = '#f1c27d'; ctx.lineWidth = 7;
+  ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(hx, hy); ctx.stroke();
+  // 라켓
+  const rx = hx + Math.cos(ang) * 22, ry = hy + Math.sin(ang) * 22;
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(rx, ry); ctx.stroke();
+  const cx = hx + Math.cos(ang) * 38, cy = hy + Math.sin(ang) * 38;
+  ctx.save(); ctx.translate(cx, cy); ctx.rotate(ang);
+  ctx.fillStyle = 'rgba(255,255,255,.18)'; ctx.strokeStyle = p.color2; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.ellipse(0, 0, 16, 11, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(255,255,255,.5)'; ctx.lineWidth = 0.8;
+  ctx.beginPath();
+  for (let i = -12; i <= 12; i += 4) { ctx.moveTo(i, -Math.sqrt(1 - (i / 16) ** 2) * 11); ctx.lineTo(i, Math.sqrt(1 - (i / 16) ** 2) * 11); }
+  for (let j = -8; j <= 8; j += 4) { ctx.moveTo(-Math.sqrt(1 - (j / 11) ** 2) * 16, j); ctx.lineTo(Math.sqrt(1 - (j / 11) ** 2) * 16, j); }
+  ctx.stroke();
+  ctx.restore();
+  // 스윙 잔상
+  if (swingActive(p)) {
+    ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.lineWidth = 10;
+    ctx.beginPath(); ctx.arc(sx, sy, 60, ang - 0.9, ang); ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawShuttle() {
+  const s = shuttle;
+  // 그림자
+  if (s.y < FLOOR) {
+    const k = Math.max(0.15, 1 - (FLOOR - s.y) / 450);
+    ctx.fillStyle = `rgba(0,0,0,${0.35 * k})`;
+    ctx.beginPath(); ctx.ellipse(s.x, FLOOR + 4, 9 * k + 2, 3, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  // 잔상
+  for (let i = 0; i < s.trail.length; i++) {
+    const t = s.trail[i], a = i / s.trail.length;
+    ctx.fillStyle = `rgba(255,255,255,${a * 0.35})`;
+    ctx.beginPath(); ctx.arc(t.x, t.y, 2 + a * 3, 0, Math.PI * 2); ctx.fill();
+  }
+  // 화면 위로 나가면 표시
+  if (s.y < 0) {
+    ctx.fillStyle = '#ffd166';
+    ctx.beginPath(); ctx.moveTo(s.x, 6); ctx.lineTo(s.x - 8, 20); ctx.lineTo(s.x + 8, 20); ctx.fill();
+    return;
+  }
+  // 셔틀콕 본체: 코르크가 진행 방향을 향함
+  let a = Math.atan2(s.vy, s.vx);
+  if (s.held) a = Math.PI / 2;
+  if (state === 'point' && s.y >= FLOOR) a = s.x < NETX ? Math.PI * 0.9 : Math.PI * 0.1;
+  ctx.save(); ctx.translate(s.x, s.y); ctx.rotate(a);
+  ctx.fillStyle = '#f8f9fa'; ctx.strokeStyle = '#adb5bd'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(-2, -4); ctx.lineTo(-18, -9); ctx.lineTo(-18, 9); ctx.lineTo(-2, 4); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = '#ced4da';
+  ctx.beginPath(); ctx.moveTo(-3, 0); ctx.lineTo(-18, 0); ctx.moveTo(-3, -2); ctx.lineTo(-18, -5); ctx.moveTo(-3, 2); ctx.lineTo(-18, 5); ctx.stroke();
+  ctx.fillStyle = '#e63946'; ctx.fillRect(-6, -4.5, 2, 9);
+  ctx.fillStyle = '#fefae0'; ctx.beginPath(); ctx.arc(0, 0, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#ddd'; ctx.stroke();
+  ctx.restore();
+}
+
+function drawHUD() {
+  // 점수판
+  ctx.fillStyle = 'rgba(0,0,0,.45)';
+  ctx.beginPath(); ctx.roundRect(W / 2 - 150, 14, 300, 62, 14); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '800 40px "Segoe UI", sans-serif';
+  ctx.fillStyle = pL.color; ctx.fillText(score.L, W / 2 - 70, 47);
+  ctx.fillStyle = pR.color; ctx.fillText(score.R, W / 2 + 70, 47);
+  ctx.fillStyle = '#fff'; ctx.font = '700 22px "Segoe UI", sans-serif'; ctx.fillText(':', W / 2, 45);
+  ctx.font = '600 13px "Malgun Gothic", sans-serif';
+  ctx.fillStyle = 'rgba(255,255,255,.75)';
+  ctx.fillText('나', W / 2 - 120, 47); ctx.fillText('CPU', W / 2 + 120, 47);
+  // 서브 표시
+  ctx.fillStyle = '#ffd166';
+  ctx.beginPath(); ctx.arc(server === 'L' ? W / 2 - 34 : W / 2 + 34, 47, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.font = '600 13px "Malgun Gothic", sans-serif'; ctx.fillStyle = 'rgba(255,255,255,.6)';
+  ctx.fillText(diff.name, W / 2, 66);
+  if (state === 'play' && rally >= 3) { ctx.fillStyle = '#fff'; ctx.font = '700 16px "Malgun Gothic", sans-serif'; ctx.fillText(`랠리 ${rally}`, W / 2, 96); }
+
+  if (state === 'serve' && server === 'L') {
+    ctx.font = '700 22px "Malgun Gothic", sans-serif'; ctx.fillStyle = '#fff';
+    ctx.globalAlpha = 0.6 + Math.sin(performance.now() / 200) * 0.4;
+    ctx.fillText((touchMQ.matches || usedTouch) ? '🏸 버튼을 눌러 서브!' : 'Space / J 를 눌러 서브!', W / 2, 140);
+    ctx.globalAlpha = 1;
+  }
+  if (state === 'point') {
+    ctx.font = '900 46px "Malgun Gothic", sans-serif';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.5)'; ctx.strokeText(message, W / 2, 160);
+    ctx.fillStyle = messageColor; ctx.fillText(message, W / 2, 160);
+    if (Math.max(score.L, score.R) >= WIN_SCORE - 1 && Math.abs(score.L - score.R) <= 1 && Math.min(score.L, score.R) >= WIN_SCORE - 1) {
+      ctx.font = '800 24px "Malgun Gothic", sans-serif'; ctx.fillStyle = '#ffd166'; ctx.fillText('듀스!', W / 2, 205);
+    } else if ((score.L === WIN_SCORE - 1 || score.R === WIN_SCORE - 1) && score.L !== score.R) {
+      ctx.font = '800 24px "Malgun Gothic", sans-serif'; ctx.fillStyle = '#ffd166'; ctx.fillText('게임 포인트', W / 2, 205);
+    }
+  }
+  if (banner) {
+    ctx.save();
+    const sc = 1 + Math.max(0, banner.t - 40) / 20;
+    ctx.translate(W / 2, 250); ctx.scale(sc, sc);
+    ctx.globalAlpha = Math.min(1, banner.t / 15);
+    ctx.font = 'italic 900 56px "Segoe UI", sans-serif';
+    ctx.lineWidth = 8; ctx.strokeStyle = 'rgba(0,0,0,.4)'; ctx.strokeText(banner.text, 0, 0);
+    ctx.fillStyle = banner.color; ctx.fillText(banner.text, 0, 0);
+    ctx.restore();
+  }
+}
+
+function draw() {
+  ctx.save();
+  if (shake) ctx.translate((Math.random() - 0.5) * shake, (Math.random() - 0.5) * shake);
+  drawBackground();
+  if (landMark) {
+    ctx.strokeStyle = landMark.out ? '#ef476f' : '#ffd166'; ctx.lineWidth = 3;
+    ctx.globalAlpha = Math.min(1, landMark.t / 30);
+    ctx.beginPath(); ctx.ellipse(landMark.x, FLOOR + 6, 18, 5, 0, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  drawNet();
+  drawPlayer(pL); drawPlayer(pR);
+  if (state !== 'menu') drawShuttle();
+  for (const q of particles) {
+    ctx.globalAlpha = Math.min(1, q.life / 20); ctx.fillStyle = q.color;
+    ctx.fillRect(q.x - 2, q.y - 2, 4, 4);
+  }
+  ctx.globalAlpha = 1;
+  if (state !== 'menu') drawHUD();
+  ctx.restore();
+  if (flash) { ctx.fillStyle = `rgba(255,255,255,${flash / 20})`; ctx.fillRect(0, 0, W, H); }
+}
+
+// ---------- 루프 (고정 60fps 물리) ----------
+let last = performance.now(), acc = 0;
+const STEP = 1000 / 60;
+function loop(now) {
+  acc += Math.min(100, now - last); last = now;
+  while (acc >= STEP) { update(); acc -= STEP; }
+  draw();
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+})();
+</script>
+<script>
+if ('serviceWorker' in navigator && location.protocol.indexOf('http') === 0) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+</script>
+</body>
+</html>
